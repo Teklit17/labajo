@@ -1458,7 +1458,7 @@ export default function AdminScreen() {
                     {/* ── Usage stats: unified strip ── */}
                     <View className="flex-row items-center bg-[#F7F7F9] border border-black/[0.04] rounded-2xl py-3 px-1 mb-3">
                       {([
-                        ['water-outline', 'DENNA MÅNAD', `${s.washesUsedThisMonth} / 4`, '#0A0A0A'],
+                        ['water-outline', 'DENNA PERIOD', `${s.washesUsedThisMonth} / 4`, '#0A0A0A'],
                         ['hourglass-outline', 'KVAR', String(s.washesRemaining), allUsed ? '#22C55E' : '#7C3AED'],
                         ['sparkles-outline', 'TOTALT', String(s.totalWashes), '#0A0A0A'],
                       ] as const).map(([icon, label, value, valueColor], i) => (
@@ -1518,8 +1518,8 @@ export default function AdminScreen() {
                       />
                       <Text className={`text-xs font-bold flex-1 ${allUsed ? 'text-[#22C55E]' : 'text-[#7C3AED]'}`}>
                         {allUsed
-                          ? 'Alla tvättar använda denna månad'
-                          : `${s.washesRemaining} tvätt${s.washesRemaining > 1 ? 'ar' : ''} kvar denna månad`}
+                          ? 'Alla tvättar använda denna period'
+                          : `${s.washesRemaining} tvätt${s.washesRemaining > 1 ? 'ar' : ''} kvar denna period`}
                       </Text>
                     </View>
 

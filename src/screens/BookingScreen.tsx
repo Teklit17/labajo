@@ -242,21 +242,28 @@ export default function BookingScreen() {
             return (
               <TouchableOpacity
                 key={p.id}
-                style={[styles.pkgRow, active && styles.pkgRowActive]}
-                activeOpacity={0.8}
+                style={styles.pkgRow}
+                activeOpacity={0.85}
                 onPress={() => setSelectedPkg(p.id)}
               >
-                <View style={[styles.pkgIcon, active && styles.pkgIconActive]}>
-                  <Text style={styles.pkgIconTxt}>{PKG_ICONS[i]}</Text>
-                </View>
-                <View style={styles.pkgMid}>
-                  <Text style={[styles.pkgName, active && styles.pkgNameActive]}>{p.name}</Text>
-                  <Text style={styles.pkgDesc}>{p.desc}</Text>
-                </View>
-                <View style={styles.pkgRight}>
-                  <Text style={[styles.pkgPrice, active && styles.pkgPriceActive]}>{fmt(priceFor(p.id))}</Text>
-                  {active && <View style={styles.pkgCheck}><Ionicons name="checkmark" size={11} color="#fff" /></View>}
-                </View>
+                <LinearGradient
+                  colors={active ? [colors.red, '#8b0010'] : ['#F6F6F8', '#F6F6F8']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.pkgGrad, active && styles.pkgGradActive]}
+                >
+                  <View style={[styles.pkgIcon, active && styles.pkgIconActive]}>
+                    <Text style={styles.pkgIconTxt}>{PKG_ICONS[i]}</Text>
+                  </View>
+                  <View style={styles.pkgMid}>
+                    <Text style={[styles.pkgName, active && styles.pkgNameActive]}>{p.name}</Text>
+                    <Text style={[styles.pkgDesc, active && styles.pkgDescActive]}>{p.desc}</Text>
+                  </View>
+                  <View style={styles.pkgRight}>
+                    <Text style={[styles.pkgPrice, active && styles.pkgPriceActive]}>{fmt(priceFor(p.id))}</Text>
+                    {active && <View style={styles.pkgCheck}><Ionicons name="checkmark" size={12} color={colors.red} /></View>}
+                  </View>
+                </LinearGradient>
               </TouchableOpacity>
             );
           })}
@@ -584,16 +591,23 @@ const styles = StyleSheet.create({
 
   /* packages */
   pkgRow: {
+    borderRadius: 18,
+    marginBottom: spacing.sm,
+  },
+  pkgGrad: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F6F6F8',
     borderRadius: 18,
     padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
   },
-  pkgRowActive: { backgroundColor: '#FFF5F6', borderColor: colors.red },
+  pkgGradActive: {
+    backgroundColor: colors.red,
+    shadowColor: colors.red,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
   pkgIcon: {
     width: 40,
     height: 40,
@@ -605,16 +619,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.04)',
   },
-  pkgIconActive: { borderColor: 'rgba(232,0,28,0.25)' },
+  pkgIconActive: { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.3)' },
   pkgIconTxt: { fontSize: 18 },
   pkgMid: { flex: 1 },
   pkgName: { fontSize: 14, fontWeight: '700', color: colors.gray600 },
-  pkgNameActive: { color: colors.black },
+  pkgNameActive: { color: '#fff' },
   pkgDesc: { fontSize: 11, color: colors.gray400, marginTop: 2 },
+  pkgDescActive: { color: 'rgba(255,255,255,0.7)' },
   pkgRight: { alignItems: 'flex-end', gap: 4 },
   pkgPrice: { fontSize: 14, fontWeight: '900', color: colors.gray400 },
-  pkgPriceActive: { color: colors.red },
-  pkgCheck: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.red, alignItems: 'center', justifyContent: 'center' },
+  pkgPriceActive: { color: '#fff', fontSize: 15 },
+  pkgCheck: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
 
   /* dates */
   dateScroll: { marginHorizontal: -18, paddingLeft: 18 },

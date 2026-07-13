@@ -17,7 +17,7 @@ import type { RootStackParamList } from '../../App';
 import { useLang } from '../i18n/LangContext';
 import { useCountry } from '../i18n/CountryContext';
 import { watchBookingsByPhone, cancelBooking, deleteBookingsByPhone, orderNumber, type Booking } from '../firebase/bookings';
-import { getSubscriberMonthlyUsage } from '../firebase/subscription';
+import { getSubscriberMonthlyUsage, cycleDaysLeft } from '../firebase/subscription';
 import { deletePin } from '../firebase/pin';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -161,9 +161,8 @@ export default function OrderDetailsScreen() {
     .sort((a, b) => ((a.date || a.createdAt) < (b.date || b.createdAt) ? 1 : -1));
   const visibleBookings = bookings.filter((b) => !isEnrollment(b));
 
-  const now = new Date();
-  const nextCycleStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const daysLeftInCycle = Math.ceil((nextCycleStart.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  // 30-day cycle anchored at the enrollment date (not the calendar month)
+  const daysLeftInCycle = enrollmentBooking?.createdAt ? cycleDaysLeft(enrollmentBooking.createdAt) : 0;
 
   return (
     <View style={styles.root}>
@@ -243,8 +242,8 @@ export default function OrderDetailsScreen() {
               <Text style={styles.subUsageBig}>{usage.remaining}</Text>
               <Text style={styles.subUsageTxt}>
                 {isSv
-                  ? `av 4 tvättar kvar denna månad`
-                  : `of 4 washes left this month`}
+                  ? `av 4 tvättar kvar denna period`
+                  : `of 4 washes left this period`}
               </Text>
             </View>
 
@@ -321,8 +320,8 @@ export default function OrderDetailsScreen() {
                 <Ionicons name="alert-circle" size={13} color="#fff" />
                 <Text style={styles.subWarnTxt}>
                   {isSv
-                    ? 'Dina outnyttjade tvättar följer inte med till nästa månad.'
-                    : "Unused washes don't carry over to next month."}
+                    ? 'Dina outnyttjade tvättar följer inte med till nästa period.'
+                    : "Unused washes don't carry over to the next period."}
                 </Text>
               </View>
             )}
@@ -336,7 +335,7 @@ export default function OrderDetailsScreen() {
               <View style={styles.subDoneRow}>
                 <Ionicons name="checkmark-circle" size={14} color="#fff" />
                 <Text style={styles.subDoneTxt}>
-                  {isSv ? 'Alla tvättar använda denna månad' : 'All washes used this month'}
+                  {isSv ? 'Alla tvättar använda denna period' : 'All washes used this period'}
                 </Text>
               </View>
             )}

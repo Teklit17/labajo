@@ -28,6 +28,29 @@ export async function checkSubscriptionByPhone(phone: string): Promise<Subscript
   };
 }
 
+/* The plan runs in rolling 30-day cycles anchored at the enrollment date
+   (e.g. enrolled Jan 15 → cycle runs to Feb 14), NOT per calendar month. */
+export const CYCLE_DAYS = 30;
+const CYCLE_MS = CYCLE_DAYS * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** ISO timestamp of the start of the current 30-day cycle for a subscriber. */
+export function currentCycleStart(enrolledAt: string, now: Date = new Date()): string {
+  const start = new Date(enrolledAt).getTime();
+  if (isNaN(start) || start > now.getTime()) {
+    // unknown enrollment date — fall back to the last 30 days
+    return new Date(now.getTime() - CYCLE_MS).toISOString();
+  }
+  const cyclesElapsed = Math.floor((now.getTime() - start) / CYCLE_MS);
+  return new Date(start + cyclesElapsed * CYCLE_MS).toISOString();
+}
+
+/** Days remaining in the subscriber's current 30-day cycle. */
+export function cycleDaysLeft(enrolledAt: string, now: Date = new Date()): number {
+  const cycleStart = new Date(currentCycleStart(enrolledAt, now)).getTime();
+  return Math.max(0, Math.ceil((cycleStart + CYCLE_MS - now.getTime()) / DAY_MS));
+}
+
 export type SubscriberStat = {
   phone: string;
   name: string;
@@ -45,12 +68,9 @@ export async function fetchSubscriberStats(): Promise<SubscriberStat[]> {
   );
   const snap = await getDocs(q);
 
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
   // Group all subscription bookings by phone. Only docs marked kind: 'wash'
   // count as a used wash — the initial enrollment booking does not.
-  const byPhone: Record<string, { name: string; packageName: string; washDates: string[]; thisMonth: number; sinceDate: string }> = {};
+  const byPhone: Record<string, { name: string; packageName: string; washDates: string[]; sinceDate: string }> = {};
 
   snap.docs.forEach((d) => {
     const data = d.data();
@@ -62,7 +82,6 @@ export async function fetchSubscriberStats(): Promise<SubscriberStat[]> {
         name: data.name ?? '',
         packageName: data.packageName ?? 'Monthly Plan',
         washDates: [],
-        thisMonth: 0,
         sinceDate: data.createdAt ?? '',
       };
     }
@@ -77,27 +96,26 @@ export async function fetchSubscriberStats(): Promise<SubscriberStat[]> {
       data.kind === 'wash' || (data.kind === 'scheduled' && data.status === 'completed');
     if (isCompletedWash) {
       byPhone[phone].washDates.push(data.createdAt ?? '');
-      if ((data.createdAt ?? '') >= monthStart) {
-        byPhone[phone].thisMonth += 1;
-      }
     }
   });
 
-  return Object.entries(byPhone).map(([phone, s]) => ({
-    phone,
-    name: s.name,
-    packageName: s.packageName,
-    washesUsedThisMonth: s.thisMonth,
-    washesRemaining: Math.max(0, 4 - s.thisMonth),
-    totalWashes: s.washDates.length,
-    sinceDate: s.sinceDate,
-  }));
+  return Object.entries(byPhone).map(([phone, s]) => {
+    const cycleStart = currentCycleStart(s.sinceDate);
+    const usedThisCycle = s.washDates.filter((d) => d >= cycleStart).length;
+    return {
+      phone,
+      name: s.name,
+      packageName: s.packageName,
+      washesUsedThisMonth: usedThisCycle,
+      washesRemaining: Math.max(0, 4 - usedThisCycle),
+      totalWashes: s.washDates.length,
+      sinceDate: s.sinceDate,
+    };
+  });
 }
 
 export async function getSubscriberMonthlyUsage(phone: string): Promise<{ used: number; remaining: number }> {
   const normalized = normalizePhone(phone);
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
   const q = query(
     collection(db, 'bookings'),
@@ -105,16 +123,24 @@ export async function getSubscriberMonthlyUsage(phone: string): Promise<{ used: 
     where('type', '==', 'subscription'),
   );
   const snap = await getDocs(q);
-  const usedThisMonth = snap.docs.filter((d) => {
+
+  // enrollment date = earliest subscription booking; anchors the 30-day cycle
+  const enrolledAt = snap.docs.reduce((min, d) => {
+    const c = d.data().createdAt ?? '';
+    return c && (!min || c < min) ? c : min;
+  }, '');
+  const cycleStart = currentCycleStart(enrolledAt);
+
+  const usedThisCycle = snap.docs.filter((d) => {
     const data = d.data();
     // kind-less subscription bookings are enrollments, which double as the
     // first wash (they carry the date/time picked at signup)
     const isCompletedWash =
       data.kind === 'wash' ||
       ((data.kind === 'scheduled' || !data.kind) && data.status === 'completed');
-    return isCompletedWash && (data.createdAt ?? '') >= monthStart;
+    return isCompletedWash && (data.createdAt ?? '') >= cycleStart;
   }).length;
-  return { used: usedThisMonth, remaining: Math.max(0, 4 - usedThisMonth) };
+  return { used: usedThisCycle, remaining: Math.max(0, 4 - usedThisCycle) };
 }
 
 export async function logSubscriptionWash(
