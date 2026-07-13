@@ -5,6 +5,7 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from './config';
 
@@ -29,6 +30,16 @@ export type ScheduleOverride = DayHours & { date: string };
 export async function fetchOverrides(): Promise<ScheduleOverride[]> {
   const snap = await getDocs(collection(db, COLLECTION));
   return snap.docs.map((d) => ({ date: d.id, ...d.data() } as ScheduleOverride));
+}
+
+// Live listener: fires immediately with current data and again whenever an
+// override is added/changed/removed. Returns an unsubscribe function.
+export function watchOverrides(cb: (overrides: ScheduleOverride[]) => void): () => void {
+  return onSnapshot(
+    collection(db, COLLECTION),
+    (snap) => cb(snap.docs.map((d) => ({ date: d.id, ...d.data() } as ScheduleOverride))),
+    (err) => console.error('watchOverrides failed:', err),
+  );
 }
 
 export async function fetchOverride(date: string): Promise<ScheduleOverride | null> {

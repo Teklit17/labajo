@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, radius } from "../theme";
 import { useLang } from "../i18n/LangContext";
 import { useSubscription } from "../context/SubscriptionContext";
-import { addReview, fetchReviews, type Review } from "../firebase/subscription";
+import { addReview, watchReviews, type Review } from "../firebase/subscription";
 import { verifyPin } from "../firebase/pin";
 
 const { width } = Dimensions.get("window");
@@ -42,20 +42,13 @@ export default function ProfileScreen() {
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [showReviewForm, setShowReviewForm] = useState(false);
 
-  const loadReviews = useCallback(async () => {
-    setLoadingReviews(true);
-    try {
-      setReviews(await fetchReviews());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoadingReviews(false);
-    }
-  }, []);
-
+  // Reviews stream in live — new or updated reviews appear on their own.
   useEffect(() => {
-    loadReviews();
-  }, [loadReviews]);
+    return watchReviews((r) => {
+      setReviews(r);
+      setLoadingReviews(false);
+    });
+  }, []);
 
   async function handleCheck() {
     if (!phoneInput.trim() || !pinInput.trim()) return;
@@ -107,7 +100,7 @@ export default function ProfileScreen() {
           ? "Tack för din recension!"
           : "Thank you for your review!",
       );
-      loadReviews();
+      // the live reviews listener picks the new review up automatically
     } catch {
       Alert.alert(
         "",

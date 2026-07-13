@@ -28,14 +28,15 @@ import { useLang } from "../i18n/LangContext";
 import { useCountry } from "../i18n/CountryContext";
 import LangSwitcher from "../components/LangSwitcher";
 import {
-  fetchReviews,
+  watchReviews,
   addReview,
   findAdminByPhone,
-  getSubscriberMonthlyUsage,
+  watchSubscriberUsage,
   type Review,
 } from "../firebase/subscription";
 import {
   fetchBookingsByPhone,
+  watchBookingsByPhone,
   cancelBooking,
   type Booking,
 } from "../firebase/bookings";
@@ -330,15 +331,8 @@ export default function HomeScreen() {
   const [reviewError, setReviewError] = useState(false);
   const [showAllReviews, setShowAllReviews] = useState(false);
 
-  function loadReviews() {
-    fetchReviews()
-      .then(setLiveReviews)
-      .catch(() => {});
-  }
-
-  useEffect(() => {
-    loadReviews();
-  }, []);
+  // Reviews stream in live — new or updated reviews appear on their own.
+  useEffect(() => watchReviews(setLiveReviews), []);
 
   async function handleSubmitReview() {
     if (!reviewName.trim() || !reviewText.trim()) return;
@@ -351,7 +345,7 @@ export default function HomeScreen() {
         rating: reviewRating,
         text: reviewText.trim(),
       });
-      loadReviews();
+      // the live reviews listener picks the new review up automatically
       setReviewName("");
       setReviewText("");
       setReviewRating(5);
@@ -364,20 +358,39 @@ export default function HomeScreen() {
     }
   }
 
+  // Wash usage streams in live for subscribers — updates the moment the
+  // admin marks a wash as completed.
   useEffect(() => {
-    if (!subscription) {
+    if (!subscription || !phone) {
       setWashUsage(null);
       return;
     }
-    getSubscriberMonthlyUsage(phone)
-      .then(setWashUsage)
-      .catch(() => setWashUsage(null));
+    return watchSubscriberUsage(phone, setWashUsage);
   }, [subscription, phone]);
 
+  // The signed-in customer's bookings stream in live (next wash, profile).
   useEffect(() => {
-    if (phone) {
-      loadMyBookings(phone);
+    if (!phone) {
+      setNextWash(null);
+      setLastProfile(null);
+      return;
     }
+    return watchBookingsByPhone(phone, (all) => {
+      setNextWash(
+        all.find(
+          (b) =>
+            b.type === "subscription" &&
+            b.kind === "scheduled" &&
+            b.status === "pending",
+        ) ?? null,
+      );
+      const withAddress = all.find((b) => !!b.address);
+      setLastProfile(
+        withAddress
+          ? { name: withAddress.name, address: withAddress.address }
+          : null,
+      );
+    });
   }, [phone]);
 
   const displayReviews = liveReviews.length > 0 ? liveReviews : t.reviews;

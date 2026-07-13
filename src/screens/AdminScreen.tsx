@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   ActivityIndicator, RefreshControl, useWindowDimensions, Linking,
@@ -10,16 +10,15 @@ import { useLang } from '../i18n/LangContext';
 import { useCountry } from '../i18n/CountryContext';
 import { watchBookings, markBookingComplete, markBookingPending, deleteBookingsByPhone, orderNumber, type Booking } from '../firebase/bookings';
 import {
-  fetchSubscriberStats, fetchAllReviewsForAdmin, deleteReview, setReviewHidden,
+  watchSubscriberStats, watchAllReviewsForAdmin, deleteReview, setReviewHidden,
   replyToReview, deleteReviewReply, type SubscriberStat, type Review,
 } from '../firebase/subscription';
 import {
-  fetchOverrides, setOverride, clearOverride, hoursForDate,
+  watchOverrides, setOverride, clearOverride, hoursForDate,
   type ScheduleOverride, type DayHours,
 } from '../firebase/schedule';
-import { fetchAllPins, deletePin, type CustomerPin } from '../firebase/pin';
-import { fetchPackages, updatePackage, type CatalogPackage, type PackageEdit } from '../firebase/packages';
-import { reloadPackagesCatalog } from '../i18n/packagesStore';
+import { watchAllPins, deletePin, type CustomerPin } from '../firebase/pin';
+import { watchPackages, updatePackage, type CatalogPackage, type PackageEdit } from '../firebase/packages';
 import { normalizePhone } from '../utils/phone';
 
 type Tab = 'bookings' | 'subscribers' | 'schedule' | 'pins' | 'customers' | 'reviews' | 'packages';
@@ -58,35 +57,28 @@ export default function AdminScreen() {
   const [savingPackageId, setSavingPackageId] = useState<string | null>(null);
   const [packageSaveState, setPackageSaveState] = useState<Record<string, 'success' | 'error'>>({});
 
-  const load = useCallback(async () => {
-    try {
-      const [sData, oData, pData, rData, pkgData] = await Promise.all([
-        fetchSubscriberStats(), fetchOverrides(), fetchAllPins(), fetchAllReviewsForAdmin(), fetchPackages(),
-      ]);
-      setSubscribers(sData);
-      setOverrides(oData);
-      setPins(pData);
-      setReviews(rData);
-      setPackages(pkgData);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  // Bookings stream in live — new orders appear without any manual refresh.
+  // Everything streams in live — new bookings, subscribers, schedule changes,
+  // PINs, reviews, and package edits appear without any manual refresh.
   useEffect(() => {
-    const unsub = watchBookings((bData) => {
-      setBookings(bData);
-      setLoading(false);
-    });
-    return unsub;
+    const unsubs = [
+      watchBookings((bData) => {
+        setBookings(bData);
+        setLoading(false);
+      }),
+      watchSubscriberStats(setSubscribers),
+      watchOverrides(setOverrides),
+      watchAllPins(setPins),
+      watchAllReviewsForAdmin(setReviews),
+      watchPackages(setPackages),
+    ];
+    return () => unsubs.forEach((unsub) => unsub());
   }, []);
 
-  const onRefresh = () => { setRefreshing(true); load(); };
+  // Data is already live; the pull gesture just gives visual feedback.
+  const onRefresh = () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 600);
+  };
 
   const toggleStatus = async (b: Booking) => {
     const next = b.status === 'completed' ? 'pending' : 'completed';
@@ -219,8 +211,8 @@ export default function AdminScreen() {
     });
     try {
       await updatePackage(id, data);
+      // the live catalog listeners pick the change up everywhere automatically
       setPackages((prev) => prev.map((p) => (p.id === id ? { ...p, ...data } : p)));
-      await reloadPackagesCatalog();
       setPackageSaveState((prev) => ({ ...prev, [id]: 'success' }));
     } catch (e) {
       console.error(e);
@@ -455,6 +447,7 @@ export default function AdminScreen() {
             </View>
             <TextInput
               className="flex-1 text-sm text-[#0A0A0A] py-3.5 font-semibold"
+              style={{ minWidth: 0 }}
               placeholder="Sök telefonnummer…"
               placeholderTextColor={colors.gray400}
               value={pinSearch}
@@ -872,6 +865,7 @@ export default function AdminScreen() {
             </View>
             <TextInput
               className="flex-1 text-sm text-[#0A0A0A] py-3.5 font-semibold"
+              style={{ minWidth: 0 }}
               placeholder="Sök namn eller telefonnummer…"
               placeholderTextColor={colors.gray400}
               value={customerSearch}
@@ -1640,10 +1634,11 @@ function ScheduleDayRow({
           )}
         </View>
 
-        {/* ── Hours editor ── */}
-        <View className="flex-row items-center gap-2 mb-3">
+        {/* ── Hours editor: toggle on its own row so the time inputs always
+             get the full card width and never get cut off on small screens ── */}
+        <View className="gap-2.5 mb-3">
           <TouchableOpacity
-            className={`flex-row items-center gap-1.5 py-2.5 px-3 rounded-xl border ${
+            className={`self-start flex-row items-center gap-1.5 py-2.5 px-3 rounded-xl border ${
               closed ? 'bg-[#0A0A0A] border-[#0A0A0A]' : 'bg-[#0EA5E9]/[0.07] border-[#0EA5E9]/[0.15]'
             }`}
             onPress={() => setClosed((c) => !c)}
@@ -1656,23 +1651,31 @@ function ScheduleDayRow({
           </TouchableOpacity>
 
           {!closed && (
-            <>
-              <TextInput
-                className="flex-1 bg-[#F7F7F9] rounded-xl border border-black/[0.04] py-2.5 px-2.5 text-[13px] font-bold text-[#0A0A0A] text-center"
-                value={open}
-                onChangeText={setOpen}
-                placeholder="08:00"
-                placeholderTextColor={colors.gray400}
-              />
-              <Text className="text-[#BDBDBD] font-bold">–</Text>
-              <TextInput
-                className="flex-1 bg-[#F7F7F9] rounded-xl border border-black/[0.04] py-2.5 px-2.5 text-[13px] font-bold text-[#0A0A0A] text-center"
-                value={close}
-                onChangeText={setClose}
-                placeholder="18:00"
-                placeholderTextColor={colors.gray400}
-              />
-            </>
+            <View className="flex-row items-end gap-2">
+              <View className="flex-1" style={{ minWidth: 0 }}>
+                <Text className="text-[8px] font-extrabold tracking-[1px] text-[#9E9E9E] mb-1 ml-0.5">ÖPPNAR</Text>
+                <TextInput
+                  className="bg-[#F7F7F9] rounded-xl border border-black/[0.04] py-2.5 px-2.5 text-[13px] font-bold text-[#0A0A0A] text-center"
+                  style={{ minWidth: 0 }}
+                  value={open}
+                  onChangeText={setOpen}
+                  placeholder="08:00"
+                  placeholderTextColor={colors.gray400}
+                />
+              </View>
+              <Text className="text-[#BDBDBD] font-bold pb-2.5">–</Text>
+              <View className="flex-1" style={{ minWidth: 0 }}>
+                <Text className="text-[8px] font-extrabold tracking-[1px] text-[#9E9E9E] mb-1 ml-0.5">STÄNGER</Text>
+                <TextInput
+                  className="bg-[#F7F7F9] rounded-xl border border-black/[0.04] py-2.5 px-2.5 text-[13px] font-bold text-[#0A0A0A] text-center"
+                  style={{ minWidth: 0 }}
+                  value={close}
+                  onChangeText={setClose}
+                  placeholder="18:00"
+                  placeholderTextColor={colors.gray400}
+                />
+              </View>
+            </View>
           )}
         </View>
 
@@ -1840,6 +1843,7 @@ function PackageEditCard({
         <View className="flex-row items-center bg-[#F7F7F9] rounded-xl border border-black/[0.04] px-3">
           <TextInput
             className="flex-1 py-2.5 text-[13px] font-bold text-[#0A0A0A]"
+            style={{ minWidth: 0 }}
             value={priceSe}
             onChangeText={setPriceSe}
             placeholder="0"

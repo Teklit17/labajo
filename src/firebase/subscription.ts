@@ -1,4 +1,4 @@
-import { collection, getDocs, query, where, addDoc, orderBy, deleteDoc, updateDoc, doc, deleteField } from 'firebase/firestore';
+import { collection, getDocs, query, where, addDoc, orderBy, deleteDoc, updateDoc, doc, deleteField, onSnapshot, type DocumentData } from 'firebase/firestore';
 import { db } from './config';
 import { normalizePhone } from '../utils/phone';
 
@@ -26,6 +26,38 @@ export async function checkSubscriptionByPhone(phone: string): Promise<Subscript
     phone: normalized,
     createdAt: data.createdAt ?? '',
   };
+}
+
+// Live listener: subscription status updates the moment the plan is
+// created or ended. Returns an unsubscribe function.
+export function watchSubscriptionByPhone(
+  phone: string,
+  cb: (status: SubscriptionStatus | null) => void,
+): () => void {
+  const normalized = normalizePhone(phone);
+  const q = query(
+    collection(db, 'bookings'),
+    where('phone', '==', normalized),
+    where('type', '==', 'subscription'),
+    where('status', '==', 'pending'),
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      if (snap.empty) {
+        cb(null);
+        return;
+      }
+      const data = snap.docs[0].data();
+      cb({
+        active: true,
+        packageName: data.packageName ?? 'Monthly Plan',
+        phone: normalized,
+        createdAt: data.createdAt ?? '',
+      });
+    },
+    (err) => console.error('watchSubscriptionByPhone failed:', err),
+  );
 }
 
 /* The plan runs in rolling 30-day cycles anchored at the enrollment date
@@ -61,19 +93,23 @@ export type SubscriberStat = {
   sinceDate: string;
 };
 
-export async function fetchSubscriberStats(): Promise<SubscriberStat[]> {
-  const q = query(
-    collection(db, 'bookings'),
-    where('type', '==', 'subscription'),
+// Single source of truth for what counts as a used wash, shared by the
+// admin stats and the customer usage card so both always show the same
+// numbers. A logged wash (kind: 'wash') always counts; scheduled washes and
+// the kind-less enrollment booking (which doubles as the first wash — it
+// carries the date/time picked at signup) count once marked completed.
+function isCompletedWash(data: DocumentData): boolean {
+  return (
+    data.kind === 'wash' ||
+    ((data.kind === 'scheduled' || !data.kind) && data.status === 'completed')
   );
-  const snap = await getDocs(q);
+}
 
-  // Group all subscription bookings by phone. Only docs marked kind: 'wash'
-  // count as a used wash — the initial enrollment booking does not.
+function statsFromDocs(docs: DocumentData[]): SubscriberStat[] {
+  // Group all subscription bookings by phone.
   const byPhone: Record<string, { name: string; packageName: string; washDates: string[]; sinceDate: string }> = {};
 
-  snap.docs.forEach((d) => {
-    const data = d.data();
+  docs.forEach((data) => {
     const phone: string = data.phone ?? '';
     if (!phone) return;
 
@@ -92,9 +128,7 @@ export async function fetchSubscriberStats(): Promise<SubscriberStat[]> {
       byPhone[phone].sinceDate = data.createdAt ?? '';
     }
 
-    const isCompletedWash =
-      data.kind === 'wash' || (data.kind === 'scheduled' && data.status === 'completed');
-    if (isCompletedWash) {
+    if (isCompletedWash(data)) {
       byPhone[phone].washDates.push(data.createdAt ?? '');
     }
   });
@@ -114,33 +148,66 @@ export async function fetchSubscriberStats(): Promise<SubscriberStat[]> {
   });
 }
 
-export async function getSubscriberMonthlyUsage(phone: string): Promise<{ used: number; remaining: number }> {
-  const normalized = normalizePhone(phone);
-
+export async function fetchSubscriberStats(): Promise<SubscriberStat[]> {
   const q = query(
     collection(db, 'bookings'),
-    where('phone', '==', normalized),
     where('type', '==', 'subscription'),
   );
   const snap = await getDocs(q);
+  return statsFromDocs(snap.docs.map((d) => d.data()));
+}
 
+// Live listener: subscriber stats recompute whenever any subscription
+// booking changes. Returns an unsubscribe function.
+export function watchSubscriberStats(cb: (stats: SubscriberStat[]) => void): () => void {
+  const q = query(
+    collection(db, 'bookings'),
+    where('type', '==', 'subscription'),
+  );
+  return onSnapshot(
+    q,
+    (snap) => cb(statsFromDocs(snap.docs.map((d) => d.data()))),
+    (err) => console.error('watchSubscriberStats failed:', err),
+  );
+}
+
+function usageFromDocs(docs: DocumentData[]): { used: number; remaining: number } {
   // enrollment date = earliest subscription booking; anchors the 30-day cycle
-  const enrolledAt = snap.docs.reduce((min, d) => {
-    const c = d.data().createdAt ?? '';
+  const enrolledAt = docs.reduce((min: string, d) => {
+    const c = d.createdAt ?? '';
     return c && (!min || c < min) ? c : min;
   }, '');
   const cycleStart = currentCycleStart(enrolledAt);
 
-  const usedThisCycle = snap.docs.filter((d) => {
-    const data = d.data();
-    // kind-less subscription bookings are enrollments, which double as the
-    // first wash (they carry the date/time picked at signup)
-    const isCompletedWash =
-      data.kind === 'wash' ||
-      ((data.kind === 'scheduled' || !data.kind) && data.status === 'completed');
-    return isCompletedWash && (data.createdAt ?? '') >= cycleStart;
-  }).length;
+  const usedThisCycle = docs.filter(
+    (data) => isCompletedWash(data) && (data.createdAt ?? '') >= cycleStart,
+  ).length;
   return { used: usedThisCycle, remaining: Math.max(0, 4 - usedThisCycle) };
+}
+
+function subscriberBookingsQuery(phone: string) {
+  return query(
+    collection(db, 'bookings'),
+    where('phone', '==', normalizePhone(phone)),
+    where('type', '==', 'subscription'),
+  );
+}
+
+export async function getSubscriberMonthlyUsage(phone: string): Promise<{ used: number; remaining: number }> {
+  const snap = await getDocs(subscriberBookingsQuery(phone));
+  return usageFromDocs(snap.docs.map((d) => d.data()));
+}
+
+// Live listener: usage recomputes whenever this subscriber's bookings change.
+export function watchSubscriberUsage(
+  phone: string,
+  cb: (usage: { used: number; remaining: number }) => void,
+): () => void {
+  return onSnapshot(
+    subscriberBookingsQuery(phone),
+    (snap) => cb(usageFromDocs(snap.docs.map((d) => d.data()))),
+    (err) => console.error('watchSubscriberUsage failed:', err),
+  );
 }
 
 export async function logSubscriptionWash(
@@ -211,6 +278,25 @@ export async function fetchAllReviewsForAdmin(): Promise<Review[]> {
   const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Review));
+}
+
+// Live listeners: reviews update on their own when added/hidden/replied to.
+export function watchReviews(cb: (reviews: Review[]) => void): () => void {
+  const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Review)).filter((r) => !r.hidden)),
+    (err) => console.error('watchReviews failed:', err),
+  );
+}
+
+export function watchAllReviewsForAdmin(cb: (reviews: Review[]) => void): () => void {
+  const q = query(collection(db, 'reviews'), orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Review))),
+    (err) => console.error('watchAllReviewsForAdmin failed:', err),
+  );
 }
 
 export async function deleteReview(id: string): Promise<void> {

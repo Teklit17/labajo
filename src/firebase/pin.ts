@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from './config';
 import { normalizePhone } from '../utils/phone';
 
@@ -49,4 +49,19 @@ export async function fetchAllPins(): Promise<CustomerPin[]> {
   return snap.docs
     .map((d) => ({ phone: d.id, pin: String(d.data().pin), createdAt: d.data().createdAt ?? '' }))
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+// Live listener: fires immediately and again whenever PINs are created or
+// deleted. Returns an unsubscribe function.
+export function watchAllPins(cb: (pins: CustomerPin[]) => void): () => void {
+  return onSnapshot(
+    collection(db, COLLECTION),
+    (snap) =>
+      cb(
+        snap.docs
+          .map((d) => ({ phone: d.id, pin: String(d.data().pin), createdAt: d.data().createdAt ?? '' }))
+          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+      ),
+    (err) => console.error('watchAllPins failed:', err),
+  );
 }

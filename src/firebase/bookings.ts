@@ -57,6 +57,28 @@ export async function fetchBookedRanges(date: string, excludeId?: string): Promi
     .map((b) => toBookedRange(b.time, b.packageId ?? 'quick'));
 }
 
+// Live listener: booked ranges for a date update the moment anyone books,
+// cancels, or reschedules — keeps the time picker's availability current.
+export function watchBookedRanges(
+  date: string,
+  cb: (ranges: BookedRange[]) => void,
+  excludeId?: string,
+): () => void {
+  const q = query(collection(db, COLLECTION), where('date', '==', date));
+  return onSnapshot(
+    q,
+    (snap) =>
+      cb(
+        snap.docs
+          .filter((d) => d.id !== excludeId)
+          .map((d) => d.data() as Booking)
+          .filter((b) => b.status !== 'cancelled')
+          .map((b) => toBookedRange(b.time, b.packageId ?? 'quick')),
+      ),
+    (err) => console.error('watchBookedRanges failed:', err),
+  );
+}
+
 export async function createBooking(data: NewBooking): Promise<string> {
   const ranges = await fetchBookedRanges(data.date);
   const candidate = toBookedRange(data.time, data.packageId);

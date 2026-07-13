@@ -21,8 +21,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { useLang } from '../i18n/LangContext';
 import { useCountry } from '../i18n/CountryContext';
-import { fetchOverrides, hoursForDate, slotsForHours, isSlotAvailable, type ScheduleOverride, type BookedRange } from '../firebase/schedule';
-import { fetchBookedRanges } from '../firebase/bookings';
+import { watchOverrides, hoursForDate, slotsForHours, isSlotAvailable, type ScheduleOverride, type BookedRange } from '../firebase/schedule';
+import { watchBookedRanges } from '../firebase/bookings';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'Booking'>;
@@ -80,11 +80,13 @@ export default function BookingScreen() {
   const [bookedRanges, setBookedRanges] = useState<BookedRange[]>([]);
   const [bookedLoading, setBookedLoading] = useState(false);
 
+  // Opening hours and booked slots stream in live, so availability stays
+  // current if the admin changes the schedule or someone books a slot.
   useEffect(() => {
-    fetchOverrides()
-      .then(setOverrides)
-      .catch((e) => console.error(e))
-      .finally(() => setOverridesLoading(false));
+    return watchOverrides((o) => {
+      setOverrides(o);
+      setOverridesLoading(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -93,11 +95,15 @@ export default function BookingScreen() {
       return;
     }
     setBookedLoading(true);
-    fetchBookedRanges(selectedDate, editBookingId)
-      .then(setBookedRanges)
-      .catch((e) => console.error(e))
-      .finally(() => setBookedLoading(false));
-  }, [selectedDate]);
+    return watchBookedRanges(
+      selectedDate,
+      (ranges) => {
+        setBookedRanges(ranges);
+        setBookedLoading(false);
+      },
+      editBookingId,
+    );
+  }, [selectedDate, editBookingId]);
 
   const dayHours = selectedDate ? hoursForDate(selectedDate, overrides) : null;
   const dayClosed = dayHours?.closed ?? false;

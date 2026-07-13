@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { checkSubscriptionByPhone, type SubscriptionStatus } from '../firebase/subscription';
+import { checkSubscriptionByPhone, watchSubscriptionByPhone, type SubscriptionStatus } from '../firebase/subscription';
 import { normalizePhone } from '../utils/phone';
 
 type SubscriptionContextType = {
@@ -30,17 +30,20 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((saved) => {
-      if (saved) {
-        setPhoneState(saved);
-        checkSubscriptionByPhone(saved).then((result) => {
-          setSubscription(result);
-          setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
+      if (saved) setPhoneState(saved);
+      else setLoading(false);
     });
   }, []);
+
+  // Live subscription status: updates the moment the plan is created or
+  // ended (e.g. by the admin), without the customer doing anything.
+  useEffect(() => {
+    if (!phone) return;
+    return watchSubscriptionByPhone(phone, (result) => {
+      setSubscription(result);
+      setLoading(false);
+    });
+  }, [phone]);
 
   async function checkPhone(p: string): Promise<SubscriptionStatus | null> {
     setLoading(true);

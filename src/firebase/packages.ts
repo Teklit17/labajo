@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc, onSnapshot, type QuerySnapshot, type DocumentData } from 'firebase/firestore';
 import { db } from './config';
 
 const COLLECTION = 'packages';
@@ -65,31 +65,48 @@ export const DEFAULT_PACKAGES: CatalogPackage[] = [
   },
 ];
 
+function packagesFromSnapshot(snap: QuerySnapshot<DocumentData>): CatalogPackage[] {
+  if (snap.empty) return DEFAULT_PACKAGES;
+
+  const byId = new Map<string, CatalogPackage>();
+  snap.docs.forEach((d) => {
+    const data = d.data() as Partial<CatalogPackage>;
+    byId.set(d.id, {
+      id: d.id,
+      name_en: data.name_en ?? '',
+      name_sv: data.name_sv ?? '',
+      desc_en: data.desc_en ?? '',
+      desc_sv: data.desc_sv ?? '',
+      prices: { SE: data.prices?.SE ?? 0 },
+    });
+  });
+
+  // Fill in any packages missing from Firestore with defaults, so a
+  // partially-seeded collection still shows all 4 packages.
+  return DEFAULT_PACKAGES.map((def) => byId.get(def.id) ?? def);
+}
+
 export async function fetchPackages(): Promise<CatalogPackage[]> {
   try {
     const snap = await withTimeout(getDocs(collection(db, COLLECTION)), 'Fetching packages');
-    if (snap.empty) return DEFAULT_PACKAGES;
-
-    const byId = new Map<string, CatalogPackage>();
-    snap.docs.forEach((d) => {
-      const data = d.data() as Partial<CatalogPackage>;
-      byId.set(d.id, {
-        id: d.id,
-        name_en: data.name_en ?? '',
-        name_sv: data.name_sv ?? '',
-        desc_en: data.desc_en ?? '',
-        desc_sv: data.desc_sv ?? '',
-        prices: { SE: data.prices?.SE ?? 0 },
-      });
-    });
-
-    // Fill in any packages missing from Firestore with defaults, so a
-    // partially-seeded collection still shows all 4 packages.
-    return DEFAULT_PACKAGES.map((def) => byId.get(def.id) ?? def);
+    return packagesFromSnapshot(snap);
   } catch (e) {
     console.error(e);
     return DEFAULT_PACKAGES;
   }
+}
+
+// Live listener: fires immediately and again whenever package content or
+// prices change. Falls back to defaults on error so the app never breaks.
+export function watchPackages(cb: (packages: CatalogPackage[]) => void): () => void {
+  return onSnapshot(
+    collection(db, COLLECTION),
+    (snap) => cb(packagesFromSnapshot(snap)),
+    (err) => {
+      console.error('watchPackages failed:', err);
+      cb(DEFAULT_PACKAGES);
+    },
+  );
 }
 
 export type PackageEdit = {

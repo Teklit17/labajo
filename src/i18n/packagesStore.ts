@@ -1,15 +1,13 @@
 import { useSyncExternalStore } from 'react';
-import { fetchPackages, DEFAULT_PACKAGES, type CatalogPackage } from '../firebase/packages';
+import { watchPackages, DEFAULT_PACKAGES, type CatalogPackage } from '../firebase/packages';
 
 // Module-level store for the wash-package catalog (name/desc/price).
-// Loaded once at app start from Firestore (falling back to hardcoded
-// defaults), then shared by LangContext (name/desc) and CountryContext
-// (price) so both stay in sync without extra prop drilling. AdminScreen
-// calls reloadPackagesCatalog() after a save so the change is reflected
-// live across the app (Home/Booking screens) immediately.
+// Backed by a live Firestore listener (falling back to hardcoded defaults),
+// then shared by LangContext (name/desc) and CountryContext (price) so both
+// stay in sync without extra prop drilling. Any change — e.g. admin edits a
+// price — streams to every screen immediately.
 let packages: CatalogPackage[] = DEFAULT_PACKAGES;
-let loaded = false;
-let inFlight: Promise<void> | null = null;
+let watching = false;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -22,23 +20,19 @@ export function getPackagesSnapshot(): CatalogPackage[] {
 
 export function subscribePackages(listener: () => void): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
-export async function reloadPackagesCatalog(): Promise<void> {
-  const p = fetchPackages().then((data) => {
+// Starts the live catalog listener once; safe to call from multiple components.
+export function ensurePackagesLoaded(): void {
+  if (watching) return;
+  watching = true;
+  watchPackages((data) => {
     packages = data;
-    loaded = true;
     notify();
   });
-  inFlight = p;
-  await p;
-}
-
-// Kicks off the initial fetch once; safe to call from multiple components.
-export function ensurePackagesLoaded(): void {
-  if (loaded || inFlight) return;
-  reloadPackagesCatalog().catch((e) => console.error(e));
 }
 
 export function usePackagesCatalog(): CatalogPackage[] {
