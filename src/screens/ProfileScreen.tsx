@@ -615,6 +615,7 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
+    minWidth: 0,
     fontSize: 15,
     color: colors.black,
     paddingHorizontal: spacing.md,
@@ -687,7 +688,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 12,
   },
-  formInput: { flex: 1, fontSize: 14, color: colors.black },
+  formInput: { flex: 1, minWidth: 0, fontSize: 14, color: colors.black },
   submitBtn: { borderRadius: radius.md, overflow: "hidden" },
   submitGrad: {
     flexDirection: "row",

@@ -432,9 +432,9 @@ export default function BookingScreen() {
       {/* ── STICKY BOTTOM BAR ── */}
       <View style={styles.bottomBar}>
         <View style={styles.bottomBarInner}>
-          <View>
-            <Text style={styles.bottomPkgName}>{pkg.name}</Text>
-            <Text style={styles.bottomPrice}>{orderWash ? t.includedInPlan : fmt(price)}</Text>
+          <View style={{ flex: 1, marginRight: spacing.sm, minWidth: 0 }}>
+            <Text style={styles.bottomPkgName} numberOfLines={1}>{pkg.name}</Text>
+            <Text style={styles.bottomPrice} numberOfLines={1}>{orderWash ? t.includedInPlan : fmt(price)}</Text>
           </View>
           <TouchableOpacity
             style={styles.confirmBtn}
@@ -818,7 +818,7 @@ const styles = StyleSheet.create({
   },
   bottomBarInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   bottomPkgName: { fontSize: 11, color: '#9E9E9E', fontWeight: '700', letterSpacing: 0.5 },
-  bottomPrice: { fontSize: 22, fontWeight: '900', color: colors.black, letterSpacing: -0.5 },
+  bottomPrice: { fontSize: 22, fontWeight: '900', color: colors.black, letterSpacing: -0.5, flexShrink: 1 },
   confirmBtn: {
     borderRadius: 999,
     overflow: 'hidden',
@@ -857,7 +857,7 @@ const styles = StyleSheet.create({
   subBadgeTxt: { color: '#fff', fontSize: 9, fontWeight: '900', letterSpacing: 2 },
   subCheck: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
   subName: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 1, marginBottom: spacing.md },
-  subPills: { flexDirection: 'row', gap: spacing.xs, marginBottom: spacing.lg },
+  subPills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.lg },
   subPill: {
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: radius.full,

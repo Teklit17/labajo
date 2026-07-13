@@ -717,6 +717,7 @@ export default function HomeScreen() {
                   </View>
                   <TextInput
                     className="flex-1 text-[15px] font-medium text-black px-4 py-3.5 web:outline-none"
+                    style={{ minWidth: 0 }}
                     placeholder="+46 70 000 00 00"
                     placeholderTextColor={colors.gray400}
                     value={phoneInput}
@@ -743,6 +744,7 @@ export default function HomeScreen() {
                   </View>
                   <TextInput
                     className="flex-1 text-[15px] font-medium text-black px-4 py-3.5 web:outline-none tracking-[3px]"
+                    style={{ minWidth: 0 }}
                     placeholder={lang === "sv" ? "• • • •" : "• • • •"}
                     placeholderTextColor={colors.gray400}
                     value={pinInput}

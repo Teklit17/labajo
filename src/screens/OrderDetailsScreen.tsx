@@ -613,8 +613,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
-  subTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  subTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  subTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  subTitleGroup: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
   subIconBox: {
     width: 32, height: 32, borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.16)',
@@ -739,8 +739,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F4F4', alignItems: 'center', justifyContent: 'center',
   },
   cardIconTxt: { fontSize: 20 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cardPkg: { fontSize: 16, fontWeight: '900', color: colors.black },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  cardPkg: { fontSize: 16, fontWeight: '900', color: colors.black, flexShrink: 1 },
   orderNoBadge: {
     backgroundColor: '#F4F4F4',
     borderRadius: radius.full,
