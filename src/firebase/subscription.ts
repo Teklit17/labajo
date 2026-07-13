@@ -107,8 +107,11 @@ export async function getSubscriberMonthlyUsage(phone: string): Promise<{ used: 
   const snap = await getDocs(q);
   const usedThisMonth = snap.docs.filter((d) => {
     const data = d.data();
+    // kind-less subscription bookings are enrollments, which double as the
+    // first wash (they carry the date/time picked at signup)
     const isCompletedWash =
-      data.kind === 'wash' || (data.kind === 'scheduled' && data.status === 'completed');
+      data.kind === 'wash' ||
+      ((data.kind === 'scheduled' || !data.kind) && data.status === 'completed');
     return isCompletedWash && (data.createdAt ?? '') >= monthStart;
   }).length;
   return { used: usedThisMonth, remaining: Math.max(0, 4 - usedThisMonth) };

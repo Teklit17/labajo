@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
 import { useLang } from '../i18n/LangContext';
 import { useCountry } from '../i18n/CountryContext';
-import { fetchBookings, markBookingComplete, markBookingPending, deleteBookingsByPhone, orderNumber, type Booking } from '../firebase/bookings';
+import { watchBookings, markBookingComplete, markBookingPending, deleteBookingsByPhone, orderNumber, type Booking } from '../firebase/bookings';
 import {
   fetchSubscriberStats, fetchAllReviewsForAdmin, deleteReview, setReviewHidden,
   replyToReview, deleteReviewReply, type SubscriberStat, type Review,
@@ -45,6 +45,9 @@ export default function AdminScreen() {
   const [expandedPhone, setExpandedPhone] = useState<string | null>(null);
   const [confirmingDeletePhone, setConfirmingDeletePhone] = useState<string | null>(null);
   const [deletingPhone, setDeletingPhone] = useState<string | null>(null);
+  const [confirmingDeleteAllInactive, setConfirmingDeleteAllInactive] = useState(false);
+  const [deletingAllInactive, setDeletingAllInactive] = useState(false);
+  const [confirmingInactivePhone, setConfirmingInactivePhone] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [replyingId, setReplyingId] = useState<string | null>(null);
@@ -57,10 +60,9 @@ export default function AdminScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [bData, sData, oData, pData, rData, pkgData] = await Promise.all([
-        fetchBookings(), fetchSubscriberStats(), fetchOverrides(), fetchAllPins(), fetchAllReviewsForAdmin(), fetchPackages(),
+      const [sData, oData, pData, rData, pkgData] = await Promise.all([
+        fetchSubscriberStats(), fetchOverrides(), fetchAllPins(), fetchAllReviewsForAdmin(), fetchPackages(),
       ]);
-      setBookings(bData);
       setSubscribers(sData);
       setOverrides(oData);
       setPins(pData);
@@ -69,12 +71,21 @@ export default function AdminScreen() {
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Bookings stream in live — new orders appear without any manual refresh.
+  useEffect(() => {
+    const unsub = watchBookings((bData) => {
+      setBookings(bData);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
   const onRefresh = () => { setRefreshing(true); load(); };
 
   const toggleStatus = async (b: Booking) => {
@@ -119,11 +130,31 @@ export default function AdminScreen() {
       await deletePin(phone);
       setBookings((prev) => prev.filter((b) => normalizePhone(b.phone) !== phone));
       setPins((prev) => prev.filter((p) => p.phone !== phone));
+      setSubscribers((prev) => prev.filter((s) => normalizePhone(s.phone) !== phone));
       setConfirmingDeletePhone(null);
     } catch (e) {
       console.error(e);
     } finally {
       setDeletingPhone(null);
+    }
+  };
+
+  const handleDeleteAllInactive = async (phones: string[]) => {
+    setDeletingAllInactive(true);
+    try {
+      for (const phone of phones) {
+        await deleteBookingsByPhone(phone);
+        await deletePin(phone);
+      }
+      const gone = new Set(phones);
+      setBookings((prev) => prev.filter((b) => !gone.has(normalizePhone(b.phone))));
+      setPins((prev) => prev.filter((p) => !gone.has(p.phone)));
+      setSubscribers((prev) => prev.filter((s) => !gone.has(normalizePhone(s.phone))));
+      setConfirmingDeleteAllInactive(false);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeletingAllInactive(false);
     }
   };
 
@@ -208,6 +239,7 @@ export default function AdminScreen() {
     bookingCount: number;
     lastBooking: Booking | null;
     hasActive: boolean;
+    pinCreatedAt?: string;
   };
 
   const customerMap = new Map<string, CustomerRow>();
@@ -233,7 +265,7 @@ export default function AdminScreen() {
     if (existing) existing.pin = p.pin;
     else customerMap.set(p.phone, {
       phone: p.phone, name: '', pin: p.pin, bookingCount: 0,
-      lastBooking: null, hasActive: false,
+      lastBooking: null, hasActive: false, pinCreatedAt: p.createdAt,
     });
   }
   const allCustomers = Array.from(customerMap.values()).sort(
@@ -246,10 +278,25 @@ export default function AdminScreen() {
       )
     : allCustomers;
 
+  // Retention: the privacy policy promises deletion 12 months after the last
+  // booking. Last activity = newest booking, or PIN creation for PIN-only rows.
+  const retentionCutoff = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 12);
+    return d.toISOString();
+  })();
+  const lastActivityOf = (c: CustomerRow) => c.lastBooking?.createdAt || c.pinCreatedAt || '';
+  const inactiveCustomers = allCustomers.filter((c) => {
+    const last = lastActivityOf(c);
+    return !!last && last < retentionCutoff && !c.hasActive;
+  });
+
   const isEnrollmentBooking = (b: Booking) =>
     b.type === 'subscription' && b.kind !== 'scheduled' && b.kind !== 'wash';
 
-  const visibleBookings = bookings.filter((b) => !isEnrollmentBooking(b));
+  // Enrollment bookings double as the subscriber's first wash when they carry
+  // a date/time picked at signup — show those as real jobs.
+  const visibleBookings = bookings.filter((b) => !isEnrollmentBooking(b) || (!!b.date && !!b.time));
 
   const filtered = visibleBookings.filter((b) =>
     filter === 'upcoming' ? b.status === 'pending'
@@ -257,7 +304,7 @@ export default function AdminScreen() {
     : true
   );
 
-  const totalRevenue = bookings.filter((b) => b.status !== 'cancelled').reduce((s, b) => s + b.price, 0);
+  const totalRevenue = bookings.filter((b) => b.status === 'completed').reduce((s, b) => s + b.price, 0);
   const completedCount = visibleBookings.filter((b) => b.status === 'completed').length;
   const upcomingCount = visibleBookings.filter((b) => b.status === 'pending').length;
   const activeSubCount = subscribers.length;
@@ -834,6 +881,137 @@ export default function AdminScreen() {
               <TouchableOpacity onPress={() => setCustomerSearch('')}>
                 <Ionicons name="close-circle" size={16} color={colors.gray400} />
               </TouchableOpacity>
+            )}
+          </View>
+
+          {/* ── Retention: inactive 12+ months ── */}
+          <View
+            className="bg-white rounded-2xl p-4 mb-4"
+            style={{
+              borderWidth: 1,
+              borderColor: inactiveCustomers.length > 0 ? 'rgba(245,158,11,0.35)' : 'rgba(0,0,0,0.05)',
+              shadowColor: '#0A0A0A',
+              shadowOpacity: 0.05,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 2,
+            }}
+          >
+            <View className="flex-row items-center gap-2.5 mb-1">
+              <View className="w-8 h-8 rounded-xl bg-[#F59E0B]/[0.12] items-center justify-center">
+                <Ionicons name="time-outline" size={15} color="#F59E0B" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[12px] font-extrabold text-[#0A0A0A] tracking-[0.3px]">
+                  INAKTIVA 12+ MÅNADER
+                </Text>
+                <Text className="text-[10px] text-[#9E9E9E] font-semibold mt-px">
+                  Integritetspolicyn: data raderas 12 mån efter senaste bokning
+                </Text>
+              </View>
+              {inactiveCustomers.length > 0 && (
+                <View className="bg-[#F59E0B]/[0.12] rounded-full px-2.5 py-1">
+                  <Text className="text-[11px] font-black text-[#F59E0B]">{inactiveCustomers.length}</Text>
+                </View>
+              )}
+            </View>
+
+            {inactiveCustomers.length === 0 ? (
+              <Text className="text-xs text-[#9E9E9E] italic mt-2 ml-[42px]">
+                Inga kunder har varit inaktiva i 12+ månader.
+              </Text>
+            ) : (
+              <>
+                {inactiveCustomers.map((c) => {
+                  const last = lastActivityOf(c);
+                  const confirming = confirmingInactivePhone === c.phone;
+                  return (
+                    <View key={c.phone} className="mt-2.5 bg-[#F7F7F9] border border-black/[0.04] rounded-2xl p-3">
+                      <View className="flex-row items-center gap-2.5">
+                        <View className="flex-1">
+                          <Text className="text-xs font-extrabold text-[#0A0A0A]" numberOfLines={1}>
+                            {c.name || 'Okänt namn'}
+                          </Text>
+                          <Text className="text-[10px] text-[#9E9E9E] font-semibold mt-px">
+                            {c.phone} · senast aktiv {last ? new Date(last).toLocaleDateString('sv-SE') : '–'}
+                          </Text>
+                        </View>
+                        {deletingPhone === c.phone ? (
+                          <ActivityIndicator size="small" color={colors.red} />
+                        ) : (
+                          <TouchableOpacity
+                            className="w-8 h-8 rounded-xl bg-[#E8001C]/[0.08] border border-[#E8001C]/[0.15] items-center justify-center"
+                            onPress={() => setConfirmingInactivePhone(confirming ? null : c.phone)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="trash-outline" size={14} color={colors.red} />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      {confirming && (
+                        <View className="flex-row gap-2 mt-2.5">
+                          <TouchableOpacity
+                            className="flex-1 items-center justify-center border border-black/[0.1] bg-white rounded-xl py-2"
+                            onPress={() => setConfirmingInactivePhone(null)}
+                            activeOpacity={0.8}
+                          >
+                            <Text className="text-[11px] font-extrabold text-[#616161]">AVBRYT</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            className="flex-1 items-center justify-center bg-[#E8001C] rounded-xl py-2"
+                            onPress={() => {
+                              setConfirmingInactivePhone(null);
+                              handleDeleteCustomer(c.phone);
+                            }}
+                            activeOpacity={0.8}
+                          >
+                            <Text className="text-[11px] font-extrabold text-white">RADERA</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {confirmingDeleteAllInactive ? (
+                  <View className="bg-[#E8001C]/[0.05] border border-[#E8001C]/[0.12] rounded-2xl p-3 gap-2.5 mt-3">
+                    <Text className="text-xs text-[#616161] leading-[18px]">
+                      Radera all data (bokningar + PIN-koder) för {inactiveCustomers.length} inaktiva kunder permanent? Detta kan inte ångras.
+                    </Text>
+                    <View className="flex-row gap-2">
+                      <TouchableOpacity
+                        className="flex-1 items-center justify-center border border-black/[0.1] bg-white rounded-xl py-2.5"
+                        onPress={() => setConfirmingDeleteAllInactive(false)}
+                        disabled={deletingAllInactive}
+                        activeOpacity={0.8}
+                      >
+                        <Text className="text-[11px] font-extrabold text-[#616161]">AVBRYT</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        className="flex-1 items-center justify-center bg-[#E8001C] rounded-xl py-2.5"
+                        onPress={() => handleDeleteAllInactive(inactiveCustomers.map((c) => c.phone))}
+                        disabled={deletingAllInactive}
+                        activeOpacity={0.8}
+                      >
+                        {deletingAllInactive ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text className="text-[11px] font-extrabold text-white">JA, RADERA ALLA</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    className="flex-row items-center justify-center gap-1.5 border border-[#E8001C]/[0.25] bg-[#E8001C]/[0.05] rounded-xl py-2.5 mt-3"
+                    onPress={() => setConfirmingDeleteAllInactive(true)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="trash-outline" size={13} color={colors.red} />
+                    <Text className="text-[11px] font-extrabold text-[#E8001C]">RADERA ALLA INAKTIVA</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
           </View>
 

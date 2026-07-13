@@ -9,6 +9,7 @@ import {
   query,
   orderBy,
   where,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db } from './config';
 import { toBookedRange, type BookedRange } from './schedule';
@@ -79,6 +80,32 @@ export async function fetchBookings(): Promise<Booking[]> {
   const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Booking));
+}
+
+// Live listeners: the callback fires immediately with current data and again
+// whenever bookings change in Firestore. Returns an unsubscribe function.
+export function watchBookings(cb: (bookings: Booking[]) => void): () => void {
+  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
+  return onSnapshot(
+    q,
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Booking))),
+    (err) => console.error('watchBookings failed:', err),
+  );
+}
+
+export function watchBookingsByPhone(phone: string, cb: (bookings: Booking[]) => void): () => void {
+  const normalized = normalizePhone(phone);
+  const q = query(collection(db, COLLECTION), where('phone', '==', normalized));
+  return onSnapshot(
+    q,
+    (snap) =>
+      cb(
+        snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Booking))
+          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
+      ),
+    (err) => console.error('watchBookingsByPhone failed:', err),
+  );
 }
 
 export async function fetchBookingsByPhone(phone: string): Promise<Booking[]> {

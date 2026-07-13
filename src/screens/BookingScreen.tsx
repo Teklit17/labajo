@@ -9,6 +9,9 @@ import {
   Alert,
   Dimensions,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  type TextInputProps,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -61,7 +64,7 @@ export default function BookingScreen() {
   const preSelected = !!route.params?.packageId;
   const orderWash = !!route.params?.orderWash;
   const editBookingId = route.params?.editBookingId;
-  const [selectedPkg, setSelectedPkg] = useState(route.params?.packageId ?? t.packages[0].id);
+  const [selectedPkg, setSelectedPkg] = useState(route.params?.packageId ?? 'standard');
   const [selectedDate, setSelectedDate] = useState(route.params?.prefillDate ?? '');
   const [selectedTime, setSelectedTime] = useState(route.params?.prefillTime ?? '');
   const [address, setAddress] = useState(route.params?.prefillAddress ?? '');
@@ -165,6 +168,10 @@ export default function BookingScreen() {
         <View style={styles.headerLine} />
       </LinearGradient>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -340,6 +347,8 @@ export default function BookingScreen() {
                 placeholder={t.addressPlaceholder}
                 value={address}
                 onChangeText={setAddress}
+                autoComplete="street-address"
+                textContentType="fullStreetAddress"
                 error={submitted && !isAddressValid ? t.addressError : undefined}
               />
               <FieldInput
@@ -360,6 +369,9 @@ export default function BookingScreen() {
                 placeholder={t.namePlaceholder}
                 value={name}
                 onChangeText={setName}
+                autoComplete="name"
+                textContentType="name"
+                autoCapitalize="words"
                 error={submitted && !isNameValid ? t.nameError : undefined}
               />
               <FieldInput
@@ -367,6 +379,8 @@ export default function BookingScreen() {
                 label={t.labelPhone}
                 placeholder={t.phonePlaceholder}
                 keyboardType="phone-pad"
+                autoComplete="tel"
+                textContentType="telephoneNumber"
                 value={phone}
                 onChangeText={setPhone}
                 error={submitted && !isPhoneValid ? t.phoneError : undefined}
@@ -400,6 +414,7 @@ export default function BookingScreen() {
           <Text style={styles.payNote}>{t.payAfterServiceNote}</Text>
         </StepBlock>}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ── STICKY BOTTOM BAR ── */}
       <View style={styles.bottomBar}>
@@ -431,7 +446,7 @@ export default function BookingScreen() {
 }
 
 function FieldInput({
-  icon, label, placeholder, value, onChangeText, error, keyboardType, last,
+  icon, label, placeholder, value, onChangeText, error, keyboardType, autoComplete, textContentType, autoCapitalize, last,
 }: {
   icon: string;
   label: string;
@@ -439,7 +454,10 @@ function FieldInput({
   value: string;
   onChangeText: (v: string) => void;
   error?: string;
-  keyboardType?: 'phone-pad';
+  keyboardType?: TextInputProps['keyboardType'];
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
+  autoCapitalize?: TextInputProps['autoCapitalize'];
   last?: boolean;
 }) {
   const [focused, setFocused] = useState(false);
@@ -453,16 +471,20 @@ function FieldInput({
           !!error && styles.inputWrapError,
         ]}
       >
-        <View style={styles.inputIconWrap}>
+        <View style={[styles.inputIconWrap, (focused || !!error) && styles.inputIconWrapActive]}>
           <Ionicons name={icon as any} size={14} color={colors.red} />
         </View>
         <TextInput
           style={styles.input}
           placeholder={placeholder}
           placeholderTextColor={colors.gray400}
+          selectionColor={colors.red}
           value={value}
           onChangeText={onChangeText}
           keyboardType={keyboardType}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
+          autoCapitalize={autoCapitalize}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
@@ -666,22 +688,44 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: spacing.md,
     borderWidth: 1.5,
-    borderColor: 'transparent',
+    borderColor: 'rgba(0,0,0,0.07)',
+    minHeight: 54,
   },
-  inputWrapFocused: { borderColor: colors.red, backgroundColor: '#fff' },
+  inputWrapFocused: {
+    borderColor: colors.red,
+    backgroundColor: '#fff',
+    shadowColor: colors.red,
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
   inputWrapError: { borderColor: colors.red, backgroundColor: '#FFF5F6' },
   inputIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.sm,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
+    borderColor: 'rgba(0,0,0,0.05)',
   },
-  input: { flex: 1, fontSize: 14, color: colors.black, paddingVertical: 13 },
+  inputIconWrapActive: {
+    backgroundColor: 'rgba(232,0,28,0.08)',
+    borderColor: 'rgba(232,0,28,0.22)',
+  },
+  input: {
+    flex: 1,
+    // 16px on web: anything smaller makes iOS Safari zoom in when the field is focused
+    fontSize: Platform.OS === 'web' ? 16 : 14,
+    fontWeight: '500',
+    color: colors.black,
+    paddingVertical: 14,
+    // kill the browser's default blue focus outline — the red border is the focus state
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null),
+  },
   fieldErrorRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, marginLeft: 2 },
   fieldError: { color: colors.red, fontSize: 11, fontWeight: '600' },
 

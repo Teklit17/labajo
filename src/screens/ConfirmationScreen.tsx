@@ -360,13 +360,13 @@ export default function ConfirmationScreen() {
         >
           <View className="absolute w-[240px] h-[240px] rounded-full bg-[#E8001C] opacity-[0.12] -top-[120px] -right-[70px]" />
 
-          {pin ? (
+          {pin && pinIsNew ? (
             <>
               <View className="w-10 h-10 rounded-full bg-[#E8001C]/[0.15] border border-[#E8001C]/[0.3] items-center justify-center mb-3">
                 <Ionicons name="key" size={17} color="#FF3D57" />
               </View>
               <Text className="text-white/60 text-[10px] font-extrabold tracking-[2px] mb-3.5">
-                {pinIsNew ? t.yourPinTitleNew : t.yourPinTitle}
+                {t.yourPinTitleNew}
               </Text>
               <View className="flex-row gap-2 mb-4">
                 {pin.split('').map((digit, i) => (
@@ -379,6 +379,18 @@ export default function ConfirmationScreen() {
                 ))}
               </View>
               <Text className="text-white/50 text-xs text-center leading-[18px] max-w-[260px]">{t.yourPinNote}</Text>
+            </>
+          ) : pin ? (
+            // Existing PIN: never re-display it — anyone can type any phone number
+            // into a booking, so showing the stored PIN would leak account access.
+            <>
+              <View className="w-10 h-10 rounded-full bg-[#E8001C]/[0.15] border border-[#E8001C]/[0.3] items-center justify-center mb-3">
+                <Ionicons name="lock-closed" size={17} color="#FF3D57" />
+              </View>
+              <Text className="text-white/60 text-[10px] font-extrabold tracking-[2px] mb-3.5 text-center">
+                {t.existingPinTitle}
+              </Text>
+              <Text className="text-white/50 text-xs text-center leading-[18px] max-w-[260px]">{t.existingPinNote}</Text>
             </>
           ) : pinLoading ? (
             <ActivityIndicator color="#FF3D57" />

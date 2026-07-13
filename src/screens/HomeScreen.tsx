@@ -441,13 +441,11 @@ export default function HomeScreen() {
       }
       const result = await checkPhone(phoneInput.trim());
       const active = await loadMyBookings(phoneInput.trim());
-      if (!result && active.length > 0) {
+      if (result || active.length > 0) {
         navigation.navigate("OrderDetails", { phone: phoneInput.trim() });
         return;
       }
-      if (!result && active.length === 0) {
-        setNotFound(true);
-      }
+      setNotFound(true);
     } catch (err) {
       setLookupError(true);
     } finally {
@@ -505,26 +503,15 @@ export default function HomeScreen() {
         <View style={styles.heroGridLine1} />
         <View style={styles.heroGridLine2} />
 
-        {/* Logo — full-bleed banner touching the top/left/right edges of the hero */}
-        <View style={styles.logoBanner}>
-          <Image
-            source={require("../../assets/labago.jpeg")}
-            style={{ width: "100%", aspectRatio: 1179 / 478 }}
-            resizeMode="cover"
-          />
-          {/* lang switcher — top left */}
-          <View style={styles.langOverlay}>
-            <LangSwitcher />
-          </View>
-
-          {/* live badge — bottom right */}
-          <View style={styles.liveBadgeOverlay}>
-            <View style={styles.liveBadge}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveTxt}>TILLGÄNGLIG NU</Text>
-            </View>
+        {/* top row — lang switcher left, live badge right */}
+        <View style={styles.heroTopRow}>
+          <LangSwitcher />
+          <View style={styles.liveBadge}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveTxt}>TILLGÄNGLIG NU</Text>
           </View>
         </View>
+
 
         {/* Eyebrow pill */}
         <View className="self-center flex-row items-center gap-1.5 bg-white/[0.06] border border-white/[0.1] rounded-full px-3.5 py-1.5 mb-4">
@@ -673,146 +660,6 @@ export default function HomeScreen() {
         />
         {subLoading ? (
           <ActivityIndicator color={colors.red} />
-        ) : subscription ? (
-          <LinearGradient
-            colors={[colors.red, "#7a000e"]}
-            className="rounded-3xl p-6 gap-1.5"
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View className="flex-row items-center justify-between mb-1">
-              <View className="w-[38px] h-[38px] rounded-full bg-white items-center justify-center">
-                <Ionicons name="checkmark" size={20} color={colors.red} />
-              </View>
-              <View className="bg-white/20 rounded-full px-2.5 py-1">
-                <Text className="text-white text-[9px] font-black tracking-[2px]">
-                  AKTIVT
-                </Text>
-              </View>
-            </View>
-            <Text className="text-white text-lg font-black">
-              {subscription.packageName}
-            </Text>
-            <Text className="text-white/55 text-xs mb-1">
-              {washUsage
-                ? lang === "sv"
-                  ? `${washUsage.remaining} av 4 tvättar kvar denna månad`
-                  : `${washUsage.remaining} of 4 washes left this month`
-                : `4 tvättar per månad`}
-              {" · "}
-              {phone}
-            </Text>
-            <View className="flex-row flex-wrap gap-1.5">
-              {["Tvätt 1", "Tvätt 2", "Tvätt 3", "Tvätt 4"].map((w, i) => {
-                const used = washUsage ? i < washUsage.used : false;
-                return (
-                  <View
-                    key={w}
-                    className={`flex-row items-center gap-1 rounded-full px-2.5 py-1 ${
-                      used ? "bg-white/35" : "bg-white/15"
-                    }`}
-                  >
-                    <Ionicons
-                      name={used ? "checkmark-circle" : "ellipse-outline"}
-                      size={12}
-                      color="#fff"
-                    />
-                    <Text className="text-white text-[11px] font-semibold">
-                      {w}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-            {nextWash ? (
-              <View className="flex-row items-center justify-between bg-white/[0.14] rounded-2xl p-4 mt-2">
-                <View className="gap-0.5">
-                  <Text className="text-white/60 text-[9px] font-black tracking-[1.5px]">
-                    {lang === "sv" ? "NÄSTA TVÄTT" : "NEXT WASH"}
-                  </Text>
-                  <Text className="text-white text-[15px] font-black">
-                    {new Date(nextWash.date + "T00:00:00").toLocaleDateString(
-                      lang === "sv" ? "sv-SE" : "en-US",
-                      { weekday: "short", day: "numeric", month: "short" },
-                    )}
-                    {" · "}
-                    {nextWash.time}
-                  </Text>
-                </View>
-                <View className="flex-row gap-2">
-                  <TouchableOpacity
-                    className="bg-white rounded-full px-3.5 py-2 min-w-[60px] items-center web:hover:opacity-90 web:transition-opacity"
-                    onPress={() =>
-                      navigation.navigate("Booking", {
-                        packageId: "subscription",
-                        orderWash: true,
-                        editBookingId: nextWash.id,
-                        prefillPhone: nextWash.phone,
-                        prefillName: nextWash.name,
-                        prefillAddress: nextWash.address,
-                        prefillDate: nextWash.date,
-                        prefillTime: nextWash.time,
-                      })
-                    }
-                    activeOpacity={0.8}
-                  >
-                    <Text className="text-[#E8001C] text-[10px] font-black tracking-wide">
-                      {lang === "sv" ? "ÄNDRA" : "EDIT"}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    className="bg-white/20 rounded-full px-3.5 py-2 min-w-[74px] items-center web:hover:bg-white/30 web:transition-colors"
-                    onPress={() => handleCancelBooking(nextWash.id)}
-                    disabled={cancellingId === nextWash.id}
-                    activeOpacity={0.8}
-                  >
-                    {cancellingId === nextWash.id ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text className="text-white text-[10px] font-black tracking-wide">
-                        {lang === "sv" ? "AVBOKA" : "CANCEL"}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              <TouchableOpacity
-                className="flex-row items-center justify-center gap-1.5 bg-white rounded-2xl py-3 mt-2 web:hover:opacity-90 web:transition-opacity"
-                activeOpacity={0.85}
-                disabled={!!washUsage && washUsage.remaining === 0}
-                onPress={() =>
-                  navigation.navigate("Booking", {
-                    packageId: "subscription",
-                    orderWash: true,
-                    prefillPhone: phone,
-                    prefillName: lastProfile?.name,
-                    prefillAddress: lastProfile?.address,
-                  })
-                }
-              >
-                <Ionicons name="calendar" size={15} color={colors.red} />
-                <Text className="text-[#E8001C] text-xs font-black tracking-wide">
-                  {washUsage && washUsage.remaining === 0
-                    ? lang === "sv"
-                      ? "INGA TVÄTTAR KVAR"
-                      : "NO WASHES LEFT"
-                    : lang === "sv"
-                      ? "BOKA NÄSTA TVÄTT"
-                      : "ORDER NEXT WASH"}
-                </Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              className="self-start bg-white/10 rounded-full px-4 py-2 mt-1.5 web:hover:bg-white/20 web:transition-colors"
-              onPress={clearPhone}
-              activeOpacity={0.8}
-            >
-              <Text className="text-white text-[11px] font-bold">
-                {lang === "sv" ? "Logga ut" : "Log out"}
-              </Text>
-            </TouchableOpacity>
-          </LinearGradient>
         ) : (
           <View className="bg-white rounded-[28px] p-7 border border-[#EFEFEF] shadow-[0_8px_28px_rgba(0,0,0,0.07)] gap-5">
             <View className="items-center gap-2">
@@ -1063,7 +910,7 @@ export default function HomeScreen() {
       {/* ══════════════════════════
           WHY LABAGO
       ══════════════════════════ */}
-      <View className="mt-10 px-6 pt-12 pb-14 bg-[#0A0A0A] overflow-hidden relative">
+      <View className="px-6 pt-12 pb-14 bg-[#0A0A0A] overflow-hidden relative">
         <View className="absolute w-[380px] h-[380px] rounded-full bg-[#E8001C] opacity-[0.06] -bottom-28 -left-28" />
 
         <SectionLabel text={t.whyTitle} light />
@@ -1491,47 +1338,65 @@ export default function HomeScreen() {
         <View style={styles.socialRow}>
           {[
             {
-              colors: ["#C13584", "#E1306C", "#F56040"] as const,
-              icon: <FontAwesome5 name="instagram" size={22} color="#fff" />,
+              colors: ["#F58529", "#DD2A7B", "#8134AF"] as const,
+              glow: "#E1306C",
+              icon: <FontAwesome5 name="instagram" size={20} color="#fff" />,
               name: "Instagram",
+              handle: "@labago2.4",
               url: "https://www.instagram.com/labago2.4",
             },
             {
               colors: ["#1877F2", "#0c5cbf"] as const,
-              icon: <FontAwesome5 name="facebook-f" size={22} color="#fff" />,
+              glow: "#1877F2",
+              icon: <FontAwesome5 name="facebook-f" size={18} color="#fff" />,
               name: "Facebook",
+              handle: "Labago",
               url: "https://www.facebook.com/people/Labago/100068093281467/",
             },
             {
               colors: ["#2b2b2b", "#010101"] as const,
+              glow: "#69C9D0",
               icon: (
                 <MaterialCommunityIcons
                   name="music-note-eighth"
-                  size={24}
+                  size={22}
                   color="#fff"
                 />
               ),
               name: "TikTok",
+              handle: "@labago4",
               url: "https://www.tiktok.com/@labago4",
             },
           ].map((s) => (
             <TouchableOpacity
               key={s.name}
-              style={styles.socialChip}
-              activeOpacity={0.8}
+              style={styles.socialCard}
+              activeOpacity={0.85}
               onPress={() => s.url && Linking.openURL(s.url)}
               disabled={!s.url}
             >
               <LinearGradient
                 colors={s.colors}
-                style={styles.socialGrad}
+                style={[styles.socialBadge, { shadowColor: s.glow }]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               >
                 {s.icon}
-                <Text style={styles.socialName}>{s.name}</Text>
-                <Text style={styles.socialHandle}>@labago</Text>
               </LinearGradient>
+              <Text style={styles.socialName}>{s.name}</Text>
+              <Text style={styles.socialHandle} numberOfLines={1}>
+                {s.handle}
+              </Text>
+              <View style={styles.socialFollowPill}>
+                <Text style={styles.socialFollowTxt}>
+                  {lang === "sv" ? "FÖLJ" : "FOLLOW"}
+                </Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={9}
+                  color="rgba(255,255,255,0.8)"
+                />
+              </View>
             </TouchableOpacity>
           ))}
         </View>
@@ -1637,21 +1502,11 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(255,255,255,0.03)",
   },
-  logoBanner: {
-    marginTop: -52,
-    marginHorizontal: -spacing.lg,
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: spacing.lg,
-    alignSelf: "stretch",
-  },
-  langOverlay: {
-    position: "absolute",
-    top: 16,
-    left: spacing.lg,
-  },
-  liveBadgeOverlay: {
-    position: "absolute",
-    bottom: 12,
-    right: spacing.lg,
   },
   liveBadge: {
     flexDirection: "row",
@@ -2052,21 +1907,57 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   socialRow: { flexDirection: "row", gap: spacing.sm },
-  socialChip: {
+  socialCard: {
     flex: 1,
-    borderRadius: 20,
-    overflow: "hidden",
+    alignItems: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 8,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    borderColor: "rgba(255,255,255,0.09)",
+    gap: 3,
   },
-  socialGrad: { paddingVertical: 18, alignItems: "center", gap: 5 },
+  socialBadge: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 6,
+  },
   socialName: {
     color: "#fff",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.5,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.4,
   },
-  socialHandle: { color: "rgba(255,255,255,0.45)", fontSize: 9 },
+  socialHandle: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 9.5,
+    marginBottom: 7,
+  },
+  socialFollowPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    borderRadius: radius.full,
+    paddingHorizontal: 11,
+    paddingVertical: 4.5,
+  },
+  socialFollowTxt: {
+    color: "#fff",
+    fontSize: 8.5,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+  },
 
   /* ── FOOTER ── */
   footer: {

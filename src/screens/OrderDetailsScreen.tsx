@@ -16,7 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { useLang } from '../i18n/LangContext';
 import { useCountry } from '../i18n/CountryContext';
-import { fetchBookingsByPhone, cancelBooking, deleteBookingsByPhone, orderNumber, type Booking } from '../firebase/bookings';
+import { watchBookingsByPhone, cancelBooking, deleteBookingsByPhone, orderNumber, type Booking } from '../firebase/bookings';
 import { getSubscriberMonthlyUsage } from '../firebase/subscription';
 import { deletePin } from '../firebase/pin';
 
@@ -46,31 +46,30 @@ export default function OrderDetailsScreen() {
   const [deleting, setDeleting] = useState(false);
   const [deleted, setDeleted] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const all = await fetchBookingsByPhone(params.phone);
+  // Live listener: bookings update on their own whenever anything changes in
+  // Firestore (new order, admin marks a wash finished, …) — no refresh needed.
+  useEffect(() => {
+    const unsub = watchBookingsByPhone(params.phone, (all) => {
       setBookings(all.filter((b) => b.status !== 'cancelled'));
       const hasSub = all.some((b) => b.type === 'subscription');
       if (hasSub) {
-        setUsage(await getSubscriberMonthlyUsage(params.phone));
+        getSubscriberMonthlyUsage(params.phone).then(setUsage).catch(() => setUsage(null));
       } else {
         setUsage(null);
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
       setLoading(false);
       setRefreshing(false);
-    }
+    });
+    return unsub;
   }, [params.phone]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
   const onRefresh = () => {
+    // bookings are already live; pull-to-refresh just re-checks the usage counter
     setRefreshing(true);
-    load();
+    getSubscriberMonthlyUsage(params.phone)
+      .then(setUsage)
+      .catch(() => {})
+      .finally(() => setRefreshing(false));
   };
 
   async function handleCancel(id: string) {
@@ -125,6 +124,15 @@ export default function OrderDetailsScreen() {
     });
   }
 
+  function handleBookAgain() {
+    const lastProfile = bookings.find((b) => !!b.address);
+    navigation.navigate('Booking', {
+      prefillPhone: params.phone,
+      prefillName: lastProfile?.name,
+      prefillAddress: lastProfile?.address,
+    });
+  }
+
   const isEnrollment = (b: Booking) => b.type === 'subscription' && b.kind !== 'scheduled' && b.kind !== 'wash';
   const isSv = lang === 'sv';
 
@@ -133,9 +141,24 @@ export default function OrderDetailsScreen() {
 
   const enrollmentBooking = bookings.find(isEnrollment) ?? null;
   const hasSubscription = !!enrollmentBooking;
-  const hasScheduledWash = bookings.some(
-    (b) => b.type === 'subscription' && b.kind === 'scheduled' && b.status === 'pending'
-  );
+  // The enrollment booking doubles as the first wash: it carries the date/time
+  // picked when signing up, so it counts as a scheduled/completed wash too.
+  const nextScheduledWash = bookings.find(
+    (b) =>
+      b.type === 'subscription' &&
+      b.status === 'pending' &&
+      !!b.date &&
+      (b.kind === 'scheduled' || isEnrollment(b))
+  ) ?? null;
+  const hasScheduledWash = !!nextScheduledWash;
+  const completedSubWashes = bookings
+    .filter(
+      (b) =>
+        b.type === 'subscription' &&
+        (b.kind === 'wash' ||
+          ((b.kind === 'scheduled' || isEnrollment(b)) && b.status === 'completed'))
+    )
+    .sort((a, b) => ((a.date || a.createdAt) < (b.date || b.createdAt) ? 1 : -1));
   const visibleBookings = bookings.filter((b) => !isEnrollment(b));
 
   const now = new Date();
@@ -239,6 +262,59 @@ export default function OrderDetailsScreen() {
                 );
               })}
             </View>
+
+            {nextScheduledWash && (
+              <View style={styles.subNextRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.subBlockLabel}>
+                    {isSv ? 'NÄSTA BOKADE TVÄTT' : 'NEXT BOOKED WASH'}
+                  </Text>
+                  <Text style={styles.subNextVal}>
+                    {new Date(nextScheduledWash.date + 'T00:00:00').toLocaleDateString(
+                      isSv ? 'sv-SE' : 'en-US',
+                      { weekday: 'short', day: 'numeric', month: 'short' }
+                    )}
+                    {' · '}
+                    {nextScheduledWash.time}
+                  </Text>
+                  {!!nextScheduledWash.address && (
+                    <Text style={styles.subNextAddr} numberOfLines={1}>
+                      {nextScheduledWash.address}
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.subNextEditBtn}
+                  onPress={() => handleEdit(nextScheduledWash)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.subNextEditTxt}>{isSv ? 'ÄNDRA' : 'EDIT'}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {completedSubWashes.length > 0 && (
+              <View style={styles.subHistoryBlock}>
+                <Text style={styles.subBlockLabel}>
+                  {isSv ? 'GENOMFÖRDA TVÄTTAR' : 'COMPLETED WASHES'}
+                </Text>
+                {completedSubWashes.map((w) => (
+                  <View key={w.id} style={styles.subHistoryRow}>
+                    <Ionicons name="checkmark-circle" size={13} color="#fff" />
+                    <Text style={styles.subHistoryTxt}>
+                      {w.date
+                        ? new Date(w.date + 'T00:00:00').toLocaleDateString(
+                            isSv ? 'sv-SE' : 'en-US',
+                            { weekday: 'short', day: 'numeric', month: 'short' }
+                          )
+                        : ''}
+                      {w.time ? ` · ${w.time}` : ''}
+                    </Text>
+                    <Text style={styles.subHistoryOrderNo}>#{orderNumber(w.id)}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {usage.remaining > 0 && daysLeftInCycle <= 7 && (
               <View style={styles.subWarnRow}>
@@ -430,6 +506,22 @@ export default function OrderDetailsScreen() {
           })
         )}
 
+        {!loading && !deleted && !hasSubscription && (
+          <TouchableOpacity style={styles.bookAgainBtn} onPress={handleBookAgain} activeOpacity={0.85}>
+            <LinearGradient
+              colors={['#FF3D57', '#E8001C']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.bookAgainGrad}
+            >
+              <Ionicons name="add-circle-outline" size={16} color="#fff" />
+              <Text style={styles.bookAgainTxt}>
+                {isSv ? 'BOKA EN NY TVÄTT' : 'BOOK ANOTHER WASH'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
         {!loading && (
           <View style={styles.dangerZone}>
             {deleted ? (
@@ -548,6 +640,25 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   subPillUsed: { backgroundColor: 'rgba(255,255,255,0.3)', borderColor: 'rgba(255,255,255,0.5)' },
+  subBlockLabel: {
+    color: 'rgba(255,255,255,0.6)', fontSize: 9, fontWeight: '900', letterSpacing: 1.5, marginBottom: 4,
+  },
+  subNextRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: radius.lg, padding: spacing.md,
+  },
+  subNextVal: { color: '#fff', fontSize: 15, fontWeight: '900' },
+  subNextAddr: { color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 2 },
+  subNextEditBtn: {
+    backgroundColor: '#fff', borderRadius: radius.full, paddingHorizontal: 14, paddingVertical: 8,
+  },
+  subNextEditTxt: { color: colors.red, fontSize: 10, fontWeight: '900', letterSpacing: 0.5 },
+  subHistoryBlock: {
+    backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: radius.lg, padding: spacing.md, gap: 6,
+  },
+  subHistoryRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  subHistoryTxt: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600', flex: 1 },
+  subHistoryOrderNo: { color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: '700' },
   subWarnRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   subWarnTxt: { color: 'rgba(255,255,255,0.8)', fontSize: 11, flex: 1, lineHeight: 15 },
   subOrderBtn: {
@@ -683,6 +794,26 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   confirmCancelTxt: { fontSize: 12, color: colors.gray600, lineHeight: 18 },
+
+  /* ── BOOK AGAIN ── */
+  bookAgainBtn: {
+    marginTop: spacing.md,
+    borderRadius: 18,
+    overflow: 'hidden',
+    shadowColor: colors.red,
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  bookAgainGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+  },
+  bookAgainTxt: { color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 1.5 },
 
   /* ── DANGER ZONE ── */
   dangerZone: {
