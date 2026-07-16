@@ -26,6 +26,9 @@ export type Booking = {
   packageId: string;
   packageName: string;
   price: number;
+  // Travel surcharge for trips outside Gävle; already included in `price`.
+  city?: string;
+  travelFee?: number;
   currency: string;
   date: string;
   time: string;
@@ -93,6 +96,9 @@ export async function createBooking(data: NewBooking): Promise<string> {
     createdAt: new Date().toISOString(),
   };
   if (payload.kind === undefined) delete payload.kind;
+  // Firestore rejects undefined values outright
+  if (payload.city === undefined) delete payload.city;
+  if (payload.travelFee === undefined) delete payload.travelFee;
 
   const ref = await addDoc(collection(db, COLLECTION), payload);
   return ref.id;

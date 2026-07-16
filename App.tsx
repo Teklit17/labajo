@@ -32,11 +32,14 @@ export type RootStackParamList = {
     prefillAddress?: string;
     prefillDate?: string;
     prefillTime?: string;
+    prefillCity?: string;
   };
   Confirmation: {
     packageId: string;
     packageName: string;
     price: number;
+    city?: string;
+    travelFee?: number;
     date: string;
     time: string;
     address: string;

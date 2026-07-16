@@ -17,6 +17,7 @@ import type { RootStackParamList } from '../../App';
 import { useLang } from '../i18n/LangContext';
 import { useCountry } from '../i18n/CountryContext';
 import { createBooking, updateBooking, cancelBooking, orderNumber } from '../firebase/bookings';
+import { cityNameFor } from '../utils/travelFees';
 import { getOrCreatePin } from '../firebase/pin';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -89,6 +90,8 @@ export default function ConfirmationScreen() {
           packageId: params.packageId,
           packageName: params.packageName,
           price: params.price,
+          city: params.city,
+          travelFee: params.travelFee,
           currency: config.currency,
           date: params.date,
           time: params.time,
@@ -131,6 +134,7 @@ export default function ConfirmationScreen() {
       prefillAddress: params.address,
       prefillDate: params.date,
       prefillTime: params.time,
+      prefillCity: params.city,
     });
   }
 
@@ -156,6 +160,11 @@ export default function ConfirmationScreen() {
       { icon: 'time' as const, label: t.labelTime, value: params.time },
     ] : []),
     { icon: 'location' as const, label: t.labelAddress, value: params.address },
+    ...(params.travelFee && params.travelFee > 0 ? [{
+      icon: 'car' as const,
+      label: t.travelFeeLabel,
+      value: `${cityNameFor(params.city ?? '')} · +${fmt(params.travelFee)}`,
+    }] : []),
     { icon: 'person' as const, label: t.labelName, value: params.name },
     { icon: 'call' as const, label: t.labelPhone, value: params.phone },
     ...(isScheduledWash ? [] : [{

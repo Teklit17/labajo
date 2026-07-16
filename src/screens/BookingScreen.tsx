@@ -23,6 +23,7 @@ import { useLang } from '../i18n/LangContext';
 import { useCountry } from '../i18n/CountryContext';
 import { watchOverrides, hoursForDate, slotsForHours, isSlotAvailable, type ScheduleOverride, type BookedRange } from '../firebase/schedule';
 import { watchBookedRanges } from '../firebase/bookings';
+import { TRAVEL_CITIES, travelFeeFor } from '../utils/travelFees';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'Booking'>;
@@ -68,6 +69,8 @@ export default function BookingScreen() {
   const [selectedDate, setSelectedDate] = useState(route.params?.prefillDate ?? '');
   const [selectedTime, setSelectedTime] = useState(route.params?.prefillTime ?? '');
   const [address, setAddress] = useState(route.params?.prefillAddress ?? '');
+  // No default — the user must actively choose their city before booking.
+  const [selectedCity, setSelectedCity] = useState(route.params?.prefillCity ?? '');
   const [addressNotes, setAddressNotes] = useState('');
   const [name, setName] = useState(route.params?.prefillName ?? '');
   const [phone, setPhone] = useState(route.params?.prefillPhone ?? '');
@@ -120,18 +123,25 @@ export default function BookingScreen() {
 
   const pkg = t.packages.find((p) => p.id === selectedPkg) ?? t.packages[0];
   const price = orderWash ? 0 : priceFor(pkg.id);
+  // Fuel/driving surcharge for trips outside Gävle. Washes included in a
+  // subscription plan are not charged extra.
+  const travelFee = orderWash || !selectedCity ? 0 : travelFeeFor(selectedCity);
+  const total = price + travelFee;
   const isSub = selectedPkg === 'subscription';
   const needsDateTime = true;
 
   const isAddressValid = address.trim().length >= 5;
+  // Scheduled washes from a plan can reuse saved details where the city
+  // picker isn't shown, so only regular bookings require a city choice.
+  const isCityValid = orderWash || !!selectedCity;
   const isNameValid = name.trim().length >= 2;
   const isPhoneValid = phone.replace(/\D/g, '').length >= 7;
   const isDateTimeValid = !needsDateTime || (!!selectedDate && !!selectedTime && !dayClosed);
-  const canSubmit = isAddressValid && isNameValid && isPhoneValid && isDateTimeValid;
+  const canSubmit = isAddressValid && isCityValid && isNameValid && isPhoneValid && isDateTimeValid;
 
   function handleBook() {
     setSubmitted(true);
-    if (!isAddressValid || !isNameValid || !isPhoneValid) {
+    if (!isAddressValid || !isCityValid || !isNameValid || !isPhoneValid) {
       return;
     }
     if (needsDateTime && (!selectedDate || !selectedTime || dayClosed)) {
@@ -141,7 +151,9 @@ export default function BookingScreen() {
     navigation.navigate('Confirmation', {
       packageId: pkg.id,
       packageName: pkg.name,
-      price,
+      price: total,
+      city: selectedCity || undefined,
+      travelFee,
       date: selectedDate,
       time: selectedTime,
       address: addressNotes.trim() ? `${address.trim()} (${addressNotes.trim()})` : address.trim(),
@@ -354,6 +366,43 @@ export default function BookingScreen() {
           <>
             {/* ── STEP 4: ADDRESS ── */}
             <StepBlock num="04" label={t.step4.replace('4. ', '')}>
+              <View style={{ marginBottom: spacing.md }}>
+                <Text style={styles.fieldLabel}>{t.cityLabel.toUpperCase()}</Text>
+                <View style={styles.cityGrid}>
+                  {TRAVEL_CITIES.map((c) => {
+                    const active = selectedCity === c.id;
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[styles.cityChip, active && styles.cityChipActive]}
+                        onPress={() => setSelectedCity(c.id)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.cityTxt, active && styles.cityTxtActive]}>{c.name}</Text>
+                        {c.fee > 0 && !orderWash && (
+                          <Text style={[styles.cityFee, active && styles.cityFeeActive]}>+{c.fee}</Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {!orderWash && (
+                  <View style={styles.cityNoteRow}>
+                    <Ionicons name="car-outline" size={13} color={travelFee > 0 ? colors.red : colors.gray400} />
+                    <Text style={[styles.cityNote, travelFee > 0 && styles.cityNoteActive]}>
+                      {!selectedCity
+                        ? t.travelFeeNote
+                        : `${travelFee > 0 ? `${t.travelFeeLabel}: +${fmt(travelFee)}` : t.noTravelFee} · ${t.travelFeeNote}`}
+                    </Text>
+                  </View>
+                )}
+                {submitted && !isCityValid && (
+                  <View style={styles.fieldErrorRow}>
+                    <Ionicons name="alert-circle" size={12} color={colors.red} />
+                    <Text style={styles.fieldError}>{t.cityError}</Text>
+                  </View>
+                )}
+              </View>
               <FieldInput
                 icon="location-outline"
                 label={t.labelAddress}
@@ -433,8 +482,10 @@ export default function BookingScreen() {
       <View style={styles.bottomBar}>
         <View style={styles.bottomBarInner}>
           <View style={{ flex: 1, marginRight: spacing.sm, minWidth: 0 }}>
-            <Text style={styles.bottomPkgName} numberOfLines={1}>{pkg.name}</Text>
-            <Text style={styles.bottomPrice} numberOfLines={1}>{orderWash ? t.includedInPlan : fmt(price)}</Text>
+            <Text style={styles.bottomPkgName} numberOfLines={1}>
+              {pkg.name}{travelFee > 0 ? ` · ${t.inclTravelFee} +${travelFee}` : ''}
+            </Text>
+            <Text style={styles.bottomPrice} numberOfLines={1}>{orderWash ? t.includedInPlan : fmt(total)}</Text>
           </View>
           <TouchableOpacity
             style={styles.confirmBtn}
@@ -691,6 +742,37 @@ const styles = StyleSheet.create({
   timeTxtActive: { color: '#fff' },
   timeTxtBlank: { color: '#A8A8AC', fontWeight: '600', textDecorationLine: 'line-through' },
   timeHint: { fontSize: 13, color: colors.gray400 },
+
+  /* city / travel fee */
+  cityGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  cityChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: '#F6F6F8',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  cityChipActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red,
+    shadowColor: colors.red,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  cityTxt: { fontSize: 12, fontWeight: '700', color: colors.gray600 },
+  cityTxtActive: { color: '#fff' },
+  cityFee: { fontSize: 12, fontWeight: '800', color: colors.red },
+  // on the selected (red) chip, red is invisible — switch to a warm amber
+  cityFeeActive: { color: '#FFD166' },
+  cityNoteRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5, marginTop: 8, marginLeft: 2 },
+  cityNote: { flex: 1, fontSize: 11, color: colors.gray400, lineHeight: 15 },
+  cityNoteActive: { color: colors.red, fontWeight: '600' },
 
   /* inputs */
   fieldGroup: {},
